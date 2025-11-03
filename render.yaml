@@ -2,10 +2,10 @@ services:
   - type: web
     name: energy-kpi-calculator
     env: python
-    plan: free            # or 'starter' for always-on
-    region: frankfurt     # pick closest: frankfurt, oregon, singapore...
+    plan: free
+    region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app03.py --server.port $PORT --server.address 0.0.0.0
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11
+        value: 3.11.9   # <-- include patch version
