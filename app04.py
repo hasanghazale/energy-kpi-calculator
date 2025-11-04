@@ -99,7 +99,7 @@ LOGO_B64 = _img_b64("logo2.png")
 st.markdown(f"""
 <div style="display:flex; align-items:center; gap:14px; margin:8px 0 8px;">
   <img src="data:image/png;base64,{LOGO_B64}" style="width:450px; height:auto;" />
-  <h1 style="color:#0f3d78; font-weight:600; margin:0;">Energy KPIs Calculator - by R&D team"</h1>
+  <h1 style="color:#0f3d78; font-weight:600; margin:0;">Energy KPIs Calculator - by R&D team</h1>
 </div>
 """, unsafe_allow_html=True)
 
