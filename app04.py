@@ -57,7 +57,7 @@ st.markdown("""
 # -------------------------------
 # Page & Style
 # -------------------------------
-st.set_page_config(page_title="Energy KPIs Calculator", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Energy KPIs Calculator - by R&D team", page_icon="📈", layout="wide")
 st.markdown(
     """
     <style>
@@ -81,10 +81,10 @@ st.markdown(
 )
 
 st.markdown('<div class="app-card">', unsafe_allow_html=True)
-st.markdown('<div class="title">Welcome 👋</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Welcome to the Energy KPIs Analysis Platform ⚙️</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Upload your Excel with sheets <b>Site data</b> and <b>Parameters</b>. '
-    "I'll parse variables, values, and units for the next calculation step.</div>",
+    '<div class="subtitle">Upload your Excel file with sheets <b>Site data</b> and <b>Parameters</b>. (Use the Excel template provided by the team, filled by the data you aim to analyze)'
+    "Variables, values, and units will be parsed for the next calculation steps.</div>",
     unsafe_allow_html=True
 )
 def _img_b64(path: str) -> str:
