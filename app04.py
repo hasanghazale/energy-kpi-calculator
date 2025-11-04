@@ -1,14 +1,19 @@
 import streamlit as st
 import os
-password = os.getenv("APP_PASSWORD")
-user_input = st.text_input("Enter password:", type="password")
-if password and user_input != password:
-    st.stop()
+
 import pandas as pd
 import numpy as np
 import re
 from typing import Dict, Any
 import io
+
+# --- PASSWORD PROTECTION ---
+PASSWORD = os.getenv("APP_PASSWORD")  # read from environment variable
+if PASSWORD:  # if password protection is enabled
+    user_input = st.text_input("Enter password:", type="password")
+    if user_input != PASSWORD:
+        st.warning("🔒 Please enter the correct password to access the app.")
+        st.stop()
 
 # -------------------------------
 # Page & Style
