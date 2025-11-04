@@ -83,8 +83,8 @@ st.markdown(
 st.markdown('<div class="app-card">', unsafe_allow_html=True)
 st.markdown('<div class="title">Welcome to the Energy KPIs Analysis Platform ⚙️</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">Upload your Excel file with sheets <b>Site data</b> and <b>Parameters</b>. (Use the Excel template provided by the team, filled by the data you aim to analyze)'
-    "Variables, values, and units will be parsed for the next calculation steps.</div>",
+    '<div class="subtitle">Please upload your Excel file with sheets <b>Site data</b> and <b>Parameters</b> <i>(use the Excel template provided by the team, filled by the data you aim to analyze)</i>.'
+    " Variables, values, and units will be parsed for the next calculation steps.</div>",
     unsafe_allow_html=True
 )
 def _img_b64(path: str) -> str:
@@ -99,7 +99,7 @@ LOGO_B64 = _img_b64("logo2.png")
 st.markdown(f"""
 <div style="display:flex; align-items:center; gap:14px; margin:8px 0 8px;">
   <img src="data:image/png;base64,{LOGO_B64}" style="width:450px; height:auto;" />
-  <h1 style="color:#0f3d78; font-weight:600; margin:0;">Energy KPIs Calculations</h1>
+  <h1 style="color:#0f3d78; font-weight:600; margin:0;">Energy KPIs Calculator - by R&D team"</h1>
 </div>
 """, unsafe_allow_html=True)
 
