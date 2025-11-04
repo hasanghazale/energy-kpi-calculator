@@ -95,7 +95,8 @@ def params_to_dict(params_df: pd.DataFrame) -> Dict[str, Any]:
 def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd.DataFrame:
     """
     Standardizes to:
-      time, i_batt_a, v_batt_v, i_load_a, gen_signal_on, grid_on, i_rectifier_a, i_solar_a
+      time, i_batt_(A), v_batt_(V), i_load_(A), gen_signal_on, grid_on, i_rectifier_(A), i_solar_(A),
+      i_gen_(A), fuel_level_tank
     """
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
     cols0 = [_clean_name(c) for c in df.columns]
@@ -118,6 +119,9 @@ def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd
         "grid_on": "grid_on",
         "i_rectifier": "i_rectifier_(A)",
         "i_solar": "i_solar_(A)",
+        "fuel_level_tank": "fuel_level_tank",
+        # >>> ADDED: read generator current if present
+        "i_gen": "i_gen_(A)",
     }
     for k, target in list(rename_map.items()):
         if k in df.columns:
@@ -133,7 +137,8 @@ def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd
     for bcol in ["gen_signal_on", "grid_on"]:
         if bcol in df.columns:
             df[bcol] = df[bcol].apply(_to_bool)
-    for ncol in ["i_batt_a", "v_batt_v", "i_load_a", "i_rectifier_a", "i_solar_a"]:
+    for ncol in ["i_batt_(A)", "v_batt_(V)", "i_load_(A)", "i_rectifier_(A)", "i_solar_(A)",
+                 "i_gen_(A)", "fuel_level_tank"]:  # >>> ADDED numeric coercion
         if ncol in df.columns:
             df[ncol] = pd.to_numeric(df[ncol], errors="coerce")
 
@@ -208,7 +213,12 @@ if uploaded is not None:
             STEP_HOURS = 1.0 / 6.0  # 10 minutes
 
             # -------- Currents (A)
-            I_Gen        = np.where(gen_on, I_rect, 0.0)
+            # >>> CHANGED: prefer measured i_gen if available; else fall back to gen_signal_on
+            if "i_gen_(A)" in df.columns and df["i_gen_(A)"].notna().any():
+                I_Gen = np.clip(df["i_gen_(A)"].to_numpy(float), 0.0, None)
+            else:
+                I_Gen = np.where(gen_on, I_rect, 0.0)
+
             I_grid       = I_rect - I_Gen
             cond_Gen_load = (I_Gen > 0) & (I_load > I_solar) & (I_batt > 0)
             I_Gen_load   = np.where(cond_Gen_load, np.minimum(I_Gen, I_load - I_solar), 0.0)
@@ -229,12 +239,78 @@ if uploaded is not None:
             P_ch_batt_estim = (I_Gen_batt + I_solar_batt + I_grid_batt) * V_batt
             P_load        =  I_load * V_batt
 
-            # -------- Fuel (L)
+            # -------- Fuel (L) — MODEL (unchanged)
             P_Gen_kW        = P_Gen * 1e-3
             pct_load        = np.where(P_Gen > 0, np.where(np.isfinite(p_gen_max) & (p_gen_max > 0), P_Gen_kW / p_gen_max, 0.0), 0.0)
             SFC             = np.where(pct_load > 0, sfc_a * (pct_load ** sfc_b), 0.0)    # (L/kWh)
             fuel_consumption= SFC * P_Gen_kW * STEP_HOURS                                   # (L) per step
             TOTAL_FUEL      = float(fuel_consumption.sum())                                 # (L)
+
+            # --- Measured fuel (simple, periodized; uses only real points, NaNs allowed in a period)
+            measured_fuel = 0
+            if "fuel_level_tank" in df.columns:
+                fuel_series = pd.to_numeric(df["fuel_level_tank"], errors="coerce")
+
+                # Boolean mask for ON samples
+                on_mask = (I_Gen > 0)
+                if np.any(on_mask):
+                    # Build group ids that increment ONLY at the start of each ON run
+                    on_mask_s = pd.Series(on_mask, index=df.index)
+                    # starts_of_runs is True when current sample is ON and previous was OFF
+                    starts_of_runs = on_mask_s & ~on_mask_s.shift(fill_value=False)
+                    group_id = starts_of_runs.cumsum()              # grows across the whole series
+                    group_id = group_id.where(on_mask_s, np.nan)    # keep id only during ON; OFF -> NaN (dropped by groupby)
+
+                    total = 0.0
+                    # Group fuel levels by each contiguous ON period
+                    for gid, s in fuel_series.groupby(group_id):
+                        if pd.isna(gid):
+                            continue
+                        s_valid = s.dropna()
+                        if s_valid.size >= 2:
+                            # per-period consumption = (max - min)
+                            total += float(s_valid.max() - s_valid.min())
+
+                    measured_fuel = float(total)
+                else:
+                    measured_fuel = 0
+
+            # --- Measured fuel (robust, periodized): median-smooth + sum of negative drops within each ON period
+            measured_fuel_robust = 0
+            if "fuel_level_tank" in df.columns:
+                fuel_series = pd.to_numeric(df["fuel_level_tank"], errors="coerce")
+
+                on_mask = (I_Gen > 0)
+                if np.any(on_mask):
+                    on_mask_s = pd.Series(on_mask, index=df.index)
+                    # contiguous-ON run IDs: increment only at the start of each ON run
+                    starts = on_mask_s & ~on_mask_s.shift(fill_value=False)
+                    gid = starts.cumsum().where(on_mask_s, np.nan)  # OFF samples -> NaN => ignored by groupby
+
+                    total = 0.0
+                    any_period = False
+
+                    for run_id, s in fuel_series.groupby(gid):
+                        if pd.isna(run_id):
+                            continue
+
+                        # Option A (safe with NaNs): smooth directly with min_periods=1
+                        s_smooth = s.rolling(window=3, center=True, min_periods=1).median()
+
+                        # Deltas; only count consumption (negative steps). NaNs are ignored automatically.
+                        deltas = s_smooth.diff()
+                        neg = deltas[deltas < 0]
+
+                        if not neg.empty:
+                            drop_l = -float(neg.sum())  # liters consumed in this ON period
+                            if drop_l > 0:
+                                total += drop_l
+                                any_period = True
+
+                    measured_fuel_robust = float(total) if any_period else measured_fuel_robust==0
+                else:
+                    measured_fuel_robust = 0
+
 
             # -------- Build DF (raw names)
             internal_raw = pd.DataFrame({
@@ -261,7 +337,7 @@ if uploaded is not None:
             # -------- UI
             st.markdown("<h2 style='color:#0a7e07;'>🔧 Internal Flows</h2>", unsafe_allow_html=True)
             st.dataframe(internal.head(200), use_container_width=True)
-            st.metric(label="TOTAL_FUEL (l)", value=f"{TOTAL_FUEL:,.3f}")
+            st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump. (l): {TOTAL_FUEL:,.3f}</h4>", unsafe_allow_html=True)
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
             # -------- KPIs Calculations --------
@@ -286,7 +362,10 @@ if uploaded is not None:
             add_kpi("Generator", "Num_of_starts", Num_of_starts, "starts")
             add_kpi("Generator", "Avg_power", Avg_power, "kW")
             add_kpi("Generator", "Total_Energy_Consumption", Total_Energy_Consumption, "kWh")
-            add_kpi("Generator", "Total_Fuel_consumption (model)", Total_Fuel_consumption, "l")
+            add_kpi("Generator", "Total_Fuel_consumption (model estimation)", Total_Fuel_consumption, "l")
+            add_kpi("Generator", "Measured_Fuel_consumption (TRION_fuel_sensor)", measured_fuel, "l")
+            #add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
+
 
             # --- 2) Battery KPIs ---
             Energy_IN = 0.001 * np.sum(P_ch_batt) * (10/60)
@@ -345,8 +424,6 @@ if uploaded is not None:
                 )
             except Exception as ex:
                 st.warning(f"Export skipped: {ex}")
-
-            
 
     except Exception as e:
         st.error(f"Could not read file: {e}")
