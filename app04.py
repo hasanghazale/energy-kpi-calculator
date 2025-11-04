@@ -39,6 +39,36 @@ def require_password():
 
 # --- call this BEFORE any of your app UI/logic ---
 require_password()
+# --------------------------------
+
+# --- Custom style / branding ---
+st.markdown("""
+<style>
+.stApp {
+    background-image: url("Picture1.png");
+    background-size: cover;
+    background-attachment: fixed;
+    background-position: center;
+}
+.app-card {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+        <img src="logo1.png" width="90">
+        <h1 style="color:#0f3d78; font-weight:800; margin:0;">Energy KPIs App</h1>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # -------------------------------
 # Page & Style
