@@ -1,6 +1,7 @@
 import streamlit as st
 import os
-
+import base64
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import re
@@ -44,12 +45,6 @@ require_password()
 # --- Custom style / branding ---
 st.markdown("""
 <style>
-.stApp {
-    background-image: url("Picture1.png");
-    background-size: cover;
-    background-attachment: fixed;
-    background-position: center;
-}
 .app-card {
     background: transparent !important;
     border: none !important;
@@ -59,21 +54,28 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    """
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-        <img src="logo1.png" width="90">
-        <h1 style="color:#0f3d78; font-weight:800; margin:0;">Energy KPIs App</h1>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# ------------------------ LOGO -
 
+def _img_b64(path: str) -> str:
+    p = Path(path)
+    if not p.exists():
+        return ""
+    return base64.b64encode(p.read_bytes()).decode()
+
+LOGO_B64 = _img_b64("logo2.png")
+
+# Header with logo (base64, so no path issues)
+st.markdown(f"""
+<div style="display:flex; align-items:center; gap:14px; margin:8px 0 8px;">
+  <img src="data:image/png;base64,{LOGO_B64}" style="width:450px; height:auto;" />
+  <h1 style="color:#0f3d78; font-weight:600; margin:0;">Energy KPIs Calculations</h1>
+</div>
+""", unsafe_allow_html=True)
 
 # -------------------------------
 # Page & Style
 # -------------------------------
-st.set_page_config(page_title="Energy KPIs App", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Energy KPIs Calculator", page_icon="📈", layout="wide")
 st.markdown(
     """
     <style>
