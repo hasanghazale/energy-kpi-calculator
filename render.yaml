@@ -5,7 +5,7 @@ services:
     plan: free
     region: frankfurt
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run app02.py --server.port $PORT --server.address 0.0.0.0
+    startCommand: streamlit run app04.py --server.port $PORT --server.address 0.0.0.0
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9   # <-- include patch version
