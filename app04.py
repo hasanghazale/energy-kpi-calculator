@@ -7,13 +7,38 @@ import re
 from typing import Dict, Any
 import io
 
-# --- PASSWORD PROTECTION ---
-PASSWORD = os.getenv("APP_PASSWORD")  # read from environment variable
-if PASSWORD:  # if password protection is enabled
-    user_input = st.text_input("Enter password:", type="password")
-    if user_input != PASSWORD:
-        st.warning("🔒 Please enter the correct password to access the app.")
+#---- PASSWORD protection -------
+def require_password():
+    APP_PASSWORD = os.getenv("APP_PASSWORD")
+
+    # If you want to block the app when no password is configured:
+    if not APP_PASSWORD:
+        st.error("App password is not configured. Set APP_PASSWORD in Render.")
         st.stop()
+
+    # Already authenticated in this session?
+    if st.session_state.get("auth_ok", False):
+        return  # proceed to the app body
+
+    # Gate: show password box only until correct
+    def _submit():
+        if st.session_state.get("__pw", "") == APP_PASSWORD:
+            st.session_state["auth_ok"] = True
+            # don’t keep the password around
+            st.session_state.pop("__pw", None)
+            st.rerun()
+        else:
+            st.session_state["auth_ok"] = False
+
+    with st.container():
+        st.text_input("Enter password:", type="password", key="__pw", on_change=_submit)
+        if st.session_state.get("auth_ok") is False:
+            st.error("Incorrect password")
+
+    st.stop()  # stop rendering the rest of the page until authenticated
+
+# --- call this BEFORE any of your app UI/logic ---
+require_password()
 
 # -------------------------------
 # Page & Style
