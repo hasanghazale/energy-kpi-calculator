@@ -408,7 +408,7 @@ if uploaded is not None:
             add_kpi("Generator", "Total_Fuel_consumption (model estimation_SFC)", Total_Fuel_consumption, "l")
             add_kpi("Generator", "Total_Fuel_consumption (model estimation_POWER)", TOTAL_FUEL_01, "l")
             add_kpi("Generator", "Measured_Fuel_consumption (TRION_fuel_sensor)", measured_fuel, "l")
-            add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
+            #add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
 
 
             # --- 2) Battery KPIs ---
