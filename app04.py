@@ -8,38 +8,6 @@ import re
 from typing import Dict, Any
 import io
 
-#---- PASSWORD protection -------
-def require_password():
-    APP_PASSWORD = os.getenv("APP_PASSWORD")
-
-    # If you want to block the app when no password is configured:
-    if not APP_PASSWORD:
-        st.error("App password is not configured. Set APP_PASSWORD in Render.")
-        st.stop()
-
-    # Already authenticated in this session?
-    if st.session_state.get("auth_ok", False):
-        return  # proceed to the app body
-
-    # Gate: show password box only until correct
-    def _submit():
-        if st.session_state.get("__pw", "") == APP_PASSWORD:
-            st.session_state["auth_ok"] = True
-            # don’t keep the password around
-            st.session_state.pop("__pw", None)
-            st.rerun()
-        else:
-            st.session_state["auth_ok"] = False
-
-    with st.container():
-        st.text_input("Enter password:", type="password", key="__pw", on_change=_submit)
-        if st.session_state.get("auth_ok") is False:
-            st.error("Incorrect password")
-
-    st.stop()  # stop rendering the rest of the page until authenticated
-
-# --- call this BEFORE any of your app UI/logic ---
-require_password()
 # --------------------------------
 
 # --- Custom style / branding ---
@@ -156,7 +124,7 @@ def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd
     """
     Standardizes to:
       time, i_batt_(A), v_batt_(V), i_load_(A), gen_signal_on, grid_on, i_rectifier_(A), i_solar_(A),
-      i_gen_(A), fuel_level_tank
+      i_gen_(A), fuel_level_tank_(l)
     """
     df = pd.read_excel(xls, sheet_name=sheet_name, header=0)
     cols0 = [_clean_name(c) for c in df.columns]
@@ -314,12 +282,13 @@ if uploaded is not None:
             TOTAL_FUEL_01 = float(instant_fuel_consump.sum())  # total in l 
             
 
-            
-            
+           
+#----------
+
             # --- Measured fuel (simple, periodized; uses only real points, NaNs allowed in a period)
             measured_fuel = 0
-            if "fuel_level_tank" in df.columns:
-                fuel_series = pd.to_numeric(df["fuel_level_tank"], errors="coerce")
+            if "fuel_level_tank_(l)" in df.columns:
+                fuel_series = pd.to_numeric(df["fuel_level_tank_(l)"], errors="coerce")
 
                 # Boolean mask for ON samples
                 on_mask = (I_Gen > 0)
@@ -347,8 +316,8 @@ if uploaded is not None:
 
             # --- Measured fuel (robust, periodized): median-smooth + sum of negative drops within each ON period
             measured_fuel_robust = 0
-            if "fuel_level_tank" in df.columns:
-                fuel_series = pd.to_numeric(df["fuel_level_tank"], errors="coerce")
+            if "fuel_level_tank_(l)" in df.columns:
+                fuel_series = pd.to_numeric(df["fuel_level_tank_(l)"], errors="coerce")
 
                 on_mask = (I_Gen > 0)
                 if np.any(on_mask):
@@ -382,6 +351,7 @@ if uploaded is not None:
                     measured_fuel_robust = 0
 
 
+ 
             # -------- Build DF (raw names)
             internal_raw = pd.DataFrame({
                 "I_Gen": I_Gen, "I_grid": I_grid, "I_Gen_load": I_Gen_load, "I_Gen_batt": I_Gen_batt,
@@ -438,7 +408,7 @@ if uploaded is not None:
             add_kpi("Generator", "Total_Fuel_consumption (model estimation_SFC)", Total_Fuel_consumption, "l")
             add_kpi("Generator", "Total_Fuel_consumption (model estimation_POWER)", TOTAL_FUEL_01, "l")
             add_kpi("Generator", "Measured_Fuel_consumption (TRION_fuel_sensor)", measured_fuel, "l")
-            #add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
+            add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
 
 
             # --- 2) Battery KPIs ---
