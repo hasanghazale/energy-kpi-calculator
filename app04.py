@@ -179,7 +179,7 @@ def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd
         "grid_on": "grid_on",
         "i_rectifier": "i_rectifier_(A)",
         "i_solar": "i_solar_(A)",
-        "fuel_level_tank": "fuel_level_tank",
+        "fuel_level_tank": "fuel_level_tank_(l)",
         # >>> ADDED: read generator current if present
         "i_gen": "i_gen_(A)",
     }
@@ -198,7 +198,7 @@ def read_site_data_sheet(xls: pd.ExcelFile, sheet_name: str = "Site data") -> pd
         if bcol in df.columns:
             df[bcol] = df[bcol].apply(_to_bool)
     for ncol in ["i_batt_(A)", "v_batt_(V)", "i_load_(A)", "i_rectifier_(A)", "i_solar_(A)",
-                 "i_gen_(A)", "fuel_level_tank"]:  # >>> ADDED numeric coercion
+                 "i_gen_(A)", "fuel_level_tank_(l)"]:  # >>> ADDED numeric coercion
         if ncol in df.columns:
             df[ncol] = pd.to_numeric(df[ncol], errors="coerce")
 
@@ -267,10 +267,12 @@ if uploaded is not None:
             V_batt = df["v_batt_(V)"].to_numpy(float)
 
             eta_rect   = float(params.get("n_rect", 1.0))
-            p_gen_max  = float(params.get("p_gen_max", np.nan))
+            p_gen_max  = float(params.get("pmax_gen", np.nan))
             sfc_a      = float(params.get("sfc_a", 0.0))
             sfc_b      = float(params.get("sfc_b", 0.0))
-            STEP_HOURS = 1.0 / 6.0  # 10 minutes
+            a_rate     = float(params.get("a_rate", 0.0))   # to calculate fuel flow rate
+            b_rate     = float(params.get("b_rate", 0.0))
+            STEP_HOURS = 1.0 / 6.0  # 10 minutes in hrs
 
             # -------- Currents (A)
             # >>> CHANGED: prefer measured i_gen if available; else fall back to gen_signal_on
@@ -298,14 +300,22 @@ if uploaded is not None:
             P_ch_batt     = np.where(I_batt > 0, I_batt * V_batt, 0.0)
             P_ch_batt_estim = (I_Gen_batt + I_solar_batt + I_grid_batt) * V_batt
             P_load        =  I_load * V_batt
+            P_MAX = float(params.get("Pmax_Gen", np.nan))
 
-            # -------- Fuel (L) — MODEL (unchanged)
+            # -------- Fuel (L) — MODEL (by SFC)
             P_Gen_kW        = P_Gen * 1e-3
-            pct_load        = np.where(P_Gen > 0, np.where(np.isfinite(p_gen_max) & (p_gen_max > 0), P_Gen_kW / p_gen_max, 0.0), 0.0)
+            pct_load        = np.where(P_Gen > 0,  P_Gen_kW / p_gen_max, 0.0)
             SFC             = np.where(pct_load > 0, sfc_a * (pct_load ** sfc_b), 0.0)    # (L/kWh)
             fuel_consumption= SFC * P_Gen_kW * STEP_HOURS                                   # (L) per step
             TOTAL_FUEL      = float(fuel_consumption.sum())                                 # (L)
+            # -------- Fuel_01 (L) — MODEL (by rate consumption)
+            fc_rate = np.where(P_Gen_kW > 0 , a_rate*P_Gen_kW + b_rate, 0.0)    # in l/hr 
+            instant_fuel_consump = fc_rate*STEP_HOURS  # in l
+            TOTAL_FUEL_01 = float(instant_fuel_consump.sum())  # total in l 
+            
 
+            
+            
             # --- Measured fuel (simple, periodized; uses only real points, NaNs allowed in a period)
             measured_fuel = 0
             if "fuel_level_tank" in df.columns:
@@ -379,7 +389,7 @@ if uploaded is not None:
                 "I_solar_load": I_solar_load, "I_solar_batt": I_solar_batt,
                 "P_Gen": P_Gen, "P_grid": P_grid, "P_solar": P_solar, "P_disch_batt": P_disch_batt,
                 "P_ch_batt": P_ch_batt, "P_ch_batt_estim": P_ch_batt_estim, "P_load": P_load,
-                "load_ratio": pct_load, "SFC": SFC, "fuel_consumption": fuel_consumption
+                "load_ratio": pct_load, "SFC": SFC, "fuel_consumption_sfc": fuel_consumption, "fuel_consumption_p": instant_fuel_consump
             })
 
             # -------- Add units to headers for display/export
@@ -389,7 +399,7 @@ if uploaded is not None:
                 "I_solar_load":"(A)","I_solar_batt":"(A)",
                 "P_Gen":"(W)","P_grid":"(W)","P_solar":"(W)","P_disch_batt":"(W)",
                 "P_ch_batt":"(W)","P_ch_batt_estim":"(W)","P_load":"(W)",
-                "load_ratio":"(-)","SFC":"(l/kWh)","fuel_consumption":"(l)"
+                "load_ratio":"(-)","SFC":"(l/kWh)","fuel_consumption":"(l)", "fuel_consumption_p": "(l)"
             }
             internal = internal_raw.copy()
             internal.columns = [f"{c} {units.get(c,'')}".strip() for c in internal.columns]
@@ -397,7 +407,10 @@ if uploaded is not None:
             # -------- UI
             st.markdown("<h2 style='color:#0a7e07;'>🔧 Internal Flows</h2>", unsafe_allow_html=True)
             st.dataframe(internal.head(200), use_container_width=True)
-            st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump. (l): {TOTAL_FUEL:,.3f}</h4>", unsafe_allow_html=True)
+            st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump_SFC_model (l): {TOTAL_FUEL:,.3f}</h4>", unsafe_allow_html=True)
+            st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump_POWER_model (l): {TOTAL_FUEL_01:,.3f}</h4>", unsafe_allow_html=True)
+            #st.markdown(f"<h4 style='color:red;'>pmax_gen (kW): {p_gen_max:,.3f}</h4>", unsafe_allow_html=True)
+            #st.markdown(f"<h4 style='color:red;'>P_max_GEN (kW): {P_MAX:,.3f}</h4>", unsafe_allow_html=True)
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
             # -------- KPIs Calculations --------
@@ -422,7 +435,8 @@ if uploaded is not None:
             add_kpi("Generator", "Num_of_starts", Num_of_starts, "starts")
             add_kpi("Generator", "Avg_power", Avg_power, "kW")
             add_kpi("Generator", "Total_Energy_Consumption", Total_Energy_Consumption, "kWh")
-            add_kpi("Generator", "Total_Fuel_consumption (model estimation)", Total_Fuel_consumption, "l")
+            add_kpi("Generator", "Total_Fuel_consumption (model estimation_SFC)", Total_Fuel_consumption, "l")
+            add_kpi("Generator", "Total_Fuel_consumption (model estimation_POWER)", TOTAL_FUEL_01, "l")
             add_kpi("Generator", "Measured_Fuel_consumption (TRION_fuel_sensor)", measured_fuel, "l")
             #add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
 
