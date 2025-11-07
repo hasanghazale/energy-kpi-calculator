@@ -435,6 +435,10 @@ if uploaded is not None:
             Total_Energy_Consumption = np.sum(P_Gen) * 0.001 * (10/60)
             Total_Fuel_consumption = TOTAL_FUEL
 
+            if Num_of_starts==0 and (Total_Fuel_consumption + TOTAL_FUEL_01) > 0:
+                Num_of_starts=1
+
+
             add_kpi("Generator", "Running_hours", Running_hours, "h")
             add_kpi("Generator", "Num_of_starts", Num_of_starts, "starts")
             add_kpi("Generator", "Avg_power", Avg_power, "kW")
