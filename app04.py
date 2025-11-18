@@ -43,7 +43,6 @@ require_password()
 # --------------------------------
 
 
-
 # --- Custom style / branding ---
 st.markdown("""
 <style>
@@ -270,8 +269,8 @@ if uploaded is not None:
 
             eta_rect   = float(params.get("n_rect", 1.0))
             p_gen_max  = float(params.get("pmax_gen", np.nan))
-            sfc_a      = float(params.get("sfc_a", 0.0))
-            sfc_b      = float(params.get("sfc_b", 0.0))
+            #sfc_a      = float(params.get("sfc_a", 0.0))
+            #sfc_b      = float(params.get("sfc_b", 0.0))
             a_rate     = float(params.get("a_rate", 0.0))   # to calculate fuel flow rate
             b_rate     = float(params.get("b_rate", 0.0))
             STEP_HOURS = 1.0 / 6.0  # 10 minutes in hrs
@@ -307,9 +306,9 @@ if uploaded is not None:
             # -------- Fuel (L) — MODEL (by SFC)
             P_Gen_kW        = P_Gen * 1e-3
             pct_load        = np.where(P_Gen > 0,  P_Gen_kW / p_gen_max, 0.0)
-            SFC             = np.where(pct_load > 0, sfc_a * (pct_load ** sfc_b), 0.0)    # (L/kWh)
-            fuel_consumption= SFC * P_Gen_kW * STEP_HOURS                                   # (L) per step
-            TOTAL_FUEL      = float(fuel_consumption.sum())                                 # (L)
+            #SFC             = np.where(pct_load > 0, sfc_a * (pct_load ** sfc_b), 0.0)    # (L/kWh)
+            #fuel_consumption= SFC * P_Gen_kW * STEP_HOURS                                   # (L) per step
+            #TOTAL_FUEL      = float(fuel_consumption.sum())                                 # (L)
             # -------- Fuel_01 (L) — MODEL (by rate consumption)
             fc_rate = np.where(P_Gen_kW > 0 , a_rate*P_Gen_kW + b_rate, 0.0)    # in l/hr 
             instant_fuel_consump = fc_rate*STEP_HOURS  # in l
@@ -318,35 +317,56 @@ if uploaded is not None:
 
            
 #----------
-
-            # --- Measured fuel (simple, periodized; uses only real points, NaNs allowed in a period)
+ 
+            # --- Measured fuel using buffer-based period logic ---
             measured_fuel = 0
+
             if "fuel_level_tank_(l)" in df.columns:
-                fuel_series = pd.to_numeric(df["fuel_level_tank_(l)"], errors="coerce")
+                fuel = pd.to_numeric(df["fuel_level_tank_(l)"], errors="coerce")
+                buffer_l = 5.0
 
-                # Boolean mask for ON samples
-                on_mask = (I_Gen > 0)
-                if np.any(on_mask):
-                    # Build group ids that increment ONLY at the start of each ON run
-                    on_mask_s = pd.Series(on_mask, index=df.index)
-                    # starts_of_runs is True when current sample is ON and previous was OFF
-                    starts_of_runs = on_mask_s & ~on_mask_s.shift(fill_value=False)
-                    group_id = starts_of_runs.cumsum()              # grows across the whole series
-                    group_id = group_id.where(on_mask_s, np.nan)    # keep id only during ON; OFF -> NaN (dropped by groupby)
+                # Compute diff between consecutive points
+                diff = fuel.diff()
 
-                    total = 0.0
-                    # Group fuel levels by each contiguous ON period
-                    for gid, s in fuel_series.groupby(group_id):
-                        if pd.isna(gid):
-                            continue
-                        s_valid = s.dropna()
-                        if s_valid.size >= 2:
-                            # per-period consumption = (max - min)
-                            total += float(s_valid.max() - s_valid.min())
+                # Identify small-step transitions (<= 5 L)
+                small_step = diff.abs() <= buffer_l
 
-                    measured_fuel = float(total)
-                else:
-                    measured_fuel = 0
+                total_consumption = 0.0
+                i = 1
+                n = len(df)
+
+                while i < n:
+                    if small_step.iloc[i]:
+                        # Start of a consumption period
+                        start_diff_idx = i
+
+                        # Extend while consecutive diffs remain <= buffer
+                        while i < n and small_step.iloc[i]:
+                            i += 1
+                        end_diff_idx = i - 1
+
+                        # Period indices in the fuel array
+                        seg_start = start_diff_idx - 1
+                        seg_end   = end_diff_idx
+
+                        segment = fuel.iloc[seg_start: seg_end + 1]
+
+                        min_v = segment.min()
+                        max_v = segment.max()
+
+                        # Period consumption = max - min
+                        period_c = max(0.0, float(max_v - min_v)) if pd.notna(min_v) else 0.0
+
+                        total_consumption += period_c
+
+                    else:
+                        i += 1
+
+                measured_fuel = float(total_consumption)
+            else:
+                measured_fuel = 0
+
+            
 
             # --- Measured fuel (robust, periodized): median-smooth + sum of negative drops within each ON period
             measured_fuel_robust = 0
@@ -393,7 +413,7 @@ if uploaded is not None:
                 "I_solar_load": I_solar_load, "I_solar_batt": I_solar_batt,
                 "P_Gen": P_Gen, "P_grid": P_grid, "P_solar": P_solar, "P_disch_batt": P_disch_batt,
                 "P_ch_batt": P_ch_batt, "P_ch_batt_estim": P_ch_batt_estim, "P_load": P_load,
-                "load_ratio": pct_load, "SFC": SFC, "fuel_consumption_sfc": fuel_consumption, "fuel_consumption_p": instant_fuel_consump
+                "load_ratio": pct_load, "fuel_consumption_p": instant_fuel_consump
             })
 
             # -------- Add units to headers for display/export
@@ -403,7 +423,7 @@ if uploaded is not None:
                 "I_solar_load":"(A)","I_solar_batt":"(A)",
                 "P_Gen":"(W)","P_grid":"(W)","P_solar":"(W)","P_disch_batt":"(W)",
                 "P_ch_batt":"(W)","P_ch_batt_estim":"(W)","P_load":"(W)",
-                "load_ratio":"(-)","SFC":"(l/kWh)","fuel_consumption":"(l)", "fuel_consumption_p": "(l)"
+                "load_ratio":"(-)", "fuel_consumption_p": "(l)"
             }
             internal = internal_raw.copy()
             internal.columns = [f"{c} {units.get(c,'')}".strip() for c in internal.columns]
@@ -411,7 +431,7 @@ if uploaded is not None:
             # -------- UI
             st.markdown("<h2 style='color:#0a7e07;'>🔧 Internal Flows</h2>", unsafe_allow_html=True)
             st.dataframe(internal.head(200), use_container_width=True)
-            st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump_SFC_model (l): {TOTAL_FUEL:,.3f}</h4>", unsafe_allow_html=True)
+            #st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump_SFC_model (l): {TOTAL_FUEL:,.3f}</h4>", unsafe_allow_html=True)
             st.markdown(f"<h4 style='color:red;'>Total_Estimated_FUEL_consump_POWER_model (l): {TOTAL_FUEL_01:,.3f}</h4>", unsafe_allow_html=True)
             #st.markdown(f"<h4 style='color:red;'>pmax_gen (kW): {p_gen_max:,.3f}</h4>", unsafe_allow_html=True)
             #st.markdown(f"<h4 style='color:red;'>P_max_GEN (kW): {P_MAX:,.3f}</h4>", unsafe_allow_html=True)
@@ -433,7 +453,8 @@ if uploaded is not None:
             Num_of_starts = np.sum((I_Gen[1:] > 0) & (I_Gen[:-1] == 0))
             Avg_power = np.mean(P_Gen[P_Gen > 0]) * 0.001 if np.any(P_Gen > 0) else 0
             Total_Energy_Consumption = np.sum(P_Gen) * 0.001 * (10/60)
-            Total_Fuel_consumption = TOTAL_FUEL
+            #Total_Fuel_consumption = TOTAL_FUEL
+            Total_Fuel_consumption = TOTAL_FUEL_01
 
             if Num_of_starts==0 and (Total_Fuel_consumption + TOTAL_FUEL_01) > 0:
                 Num_of_starts=1
@@ -443,7 +464,7 @@ if uploaded is not None:
             add_kpi("Generator", "Num_of_starts", Num_of_starts, "starts")
             add_kpi("Generator", "Avg_power", Avg_power, "kW")
             add_kpi("Generator", "Total_Energy_Consumption", Total_Energy_Consumption, "kWh")
-            add_kpi("Generator", "Total_Fuel_consumption (model estimation_SFC)", Total_Fuel_consumption, "l")
+            #add_kpi("Generator", "Total_Fuel_consumption (model estimation_SFC)", Total_Fuel_consumption, "l")
             add_kpi("Generator", "Total_Fuel_consumption (model estimation_POWER)", TOTAL_FUEL_01, "l")
             add_kpi("Generator", "Measured_Fuel_consumption (TRION_fuel_sensor)", measured_fuel, "l")
             #add_kpi("Generator", "Measured_Fuel_consumption (robust)", measured_fuel_robust, "l")
@@ -455,8 +476,8 @@ if uploaded is not None:
             Autonomy = np.sum(I_batt < 0) * (10/60)
             Cycle_transitions = int(np.sum((I_batt[1:] > 0) & (I_batt[:-1] < 0)))
 
-            add_kpi("Battery", "Energy_IN", Energy_IN, "kWh")
-            add_kpi("Battery", "Energy_OUT", Energy_OUT, "kWh")
+            add_kpi("Battery", "Charging_Energy", Energy_IN, "kWh")
+            add_kpi("Battery", "Discharging_Energy", Energy_OUT, "kWh")
             add_kpi("Battery", "Autonomy", Autonomy, "h")
             add_kpi("Battery", "Cycle_transitions", Cycle_transitions, "-")
 
@@ -473,7 +494,7 @@ if uploaded is not None:
             Avg_Consumption_power = 0.001 * np.mean(P_grid[P_grid > 0]) if np.any(P_grid > 0) else 0
 
             add_kpi("Grid", "Uptime", Uptime, "h")
-            add_kpi("Grid", "Energy_Outage", Energy_Outage, "kWh")
+            add_kpi("Grid", "Delivered_Energy", Energy_Outage, "kWh")
             add_kpi("Grid", "Avg_Consumption_power", Avg_Consumption_power, "kW")
 
             # --- 5) PV KPIs ---
